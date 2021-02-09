@@ -1,6 +1,6 @@
 using LinearAlgebra
 using Plots
-plotly()
+# plotly()
 
 # Basic equations
 # Velocity field
@@ -22,30 +22,54 @@ plotly()
 
 # First, let's build up from 1D, and go from there.
 
-# Discretising the diffusion involves a second-order derivative. Taylor-expand with foward and backward difference
-# schemes, then combine to cancel terms. Neglect O(x^4) terms.
+# Onto Burger's equation! Combining both advection AND diffusion! Combining the two yields:
+# u[i] = un[i] - un[i] * dt / dx * (un[i] - un[i - 1]) + nu * dt / (dx * dx) * (un[i+1] - 2 * un[i] + un[i-1])
 
-# When done properly, gives d2u/dx2 = (ui+1 - 2ui + ui-1)/Delx2 + O(Delx^2)
+# Though we want to add some boundary conditions here, because we want to explore some interesting concepts with Burger's equation.
+# Initla conditions are:
+# u = -2nu/phi dphi/dx +4
+# phi = exp(-x^2/4nu) + exp(-(x-2pi)^2/4nu)
 
-nx = 41
-dx = 2 / (nx - 1)
-nt = 20 # Number of timesteps
-nu = 0.01 # Viscosity
+# Has an analytic solution of:
+# u = -2nu/phi dphi/dx +4
+# phi = exp(-(x - 4t)^2/(4nu(t+1))) + exp(-(x-4t-2pi)^2/(4nu(t+1)))
+
+# Boundary condition is: u(0) = u(2pi) -> Periodic!
+
+nx = 101
+dx = 2 * pi / (nx - 1)
+nt = 500 # Number of timesteps
+nu = 0.07 # Viscosity
 sigma = 0.2 # Sigma is randomly defined later, then we're told to ignore it for now. K. Probably some kind of discretised stepping rate.
-dt = sigma * dx * dx / ν # dt is the amount of time each step, i.e. delta t
+dt = dx * nu # dt is the amount of time each step, i.e. delta t
+
+t = 0 # Initial time
+x = range(0, 2*pi, length = nx)
 
 # Set up initial conditions. We want 1 everywhere, except where there are twos (0.5 ≤ x ≤ 1)
 u = ones(1, nx)
 u[round(Int, 0.5/dx):round(Int, 1/dx+1)] .= 2
 
-plot(u')
+phi = exp.(-x.*x./(4*nu)) + exp.(-(x .- 2 * pi).^2 ./ (4 * nu))
+dphidx = -(-8*t .+ 2*x) .* exp.(-(-4*t .+ x).^2 ./ (4*nu*(t + 1))) ./ (4*nu*(t + 1)) .- (-8*t .+ 2*x .- 4*pi) .* exp.(-(-4*t .+ x .- 2*pi).^2 ./ (4*nu .* (t + 1))) ./ (4*nu*(t + 1))
+u = -2*nu.*(-(-8*t .+ 2*x).*exp.(-(-4*t .+ x).^2 ./ (4*nu*(t + 1))) ./ (4*nu*(t + 1)) .- (-8*t .+ 2*x .- 4*pi) .* exp.(-(-4*t .+ x .- 2*pi).^2 ./ (4*nu .* (t + 1))) ./ (4*nu .* (t + 1))) ./ (exp.(-(-4*t .+ x .- 2*pi) .^2 ./ (4*nu * (t + 1))) .+ exp.(-(-4*t .+ x).^2 ./ (4*nu*(t + 1)))) .+ 4
+# Copied directly from the tutorial and modified for Julia, because screeeeewwwww typing this out by hand.
+
+uini = copy(u)
+plot(uini)
 
 # For every element in u, we need to perform the discretization
-for n in 1:nt
-    local u_n = copy(u)
+anim = @animate for n in 1:nt
+# for n in 1:nt # This n actually isn't doing anything at the moment. I guess we *could* use it to store time information, but atm we just lose that.
+    local un = copy(u)
     for i in 2:nx-1
-        u[i] = u_n[i] + nu * dt / (dx * dx) * (u_n[i+1] - 2 * u_n[i] + u_n[i-1]) # Discretised diffusion added here. It's linear, but based on viscosity.
+        u[i] = un[i] - un[i] * dt / dx * (un[i] - un[i - 1]) + nu * dt / (dx * dx) * (un[i+1] - 2 * un[i] + un[i-1]) # Discretised diffusion added here. It's linear, but based on viscosity.
+        u[1] = un[1] - un[1] * dt / dx * (un[1] - un[end - 1]) + nu * dt / (dx * dx) * (un[2] - 2 * un[1] + un[end - 1])
+        u[end] = u[1]
     end
+    plot(uini)
+    plot!(u)
 end
 
-plot!(u')
+# plot!(u)
+gif(anim, "sawtooth.gif", fps = 30)
