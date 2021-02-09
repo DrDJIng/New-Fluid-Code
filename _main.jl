@@ -22,9 +22,9 @@ plotly()
 
 # First, let's build up from 1D, and go from there.
 
-nx = 41
+nx = 61
 dx = 2 / (nx - 1)
-nt = 25 # Number of timesteps
+nt = 2 # Number of timesteps
 dt = 0.025 # dt is the amount of time each step, i.e. delta t
 c = 1 # Wavespeed
 
@@ -38,7 +38,7 @@ plot(u')
 for n in 1:nt
     local u_n = copy(u)
     for i in 2:nx
-        u[i] = u_n[i] - c * dt / dx * (u_n[i] - u_n[i-1])
+        u[i] = u_n[i] - u_n[i] * dt / dx * (u_n[i] - u_n[i-1]) # Non-linear term added here (c -> u_n[i]).
     end
 end
 
