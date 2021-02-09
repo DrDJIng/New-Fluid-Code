@@ -38,7 +38,7 @@ plot(u')
 for n in 1:nt
     local u_n = copy(u)
     for i in 2:nx
-        u[i] = u_n[i] - c * dt / dx * (u_n[i] - u_n[i-1])
+        u[i] = u_n[i] - u_n[i] * dt / dx * (u_n[i] - u_n[i-1]) # Non-linear term added here (c -> u_n[i]).
     end
 end
 
