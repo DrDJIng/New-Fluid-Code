@@ -37,39 +37,55 @@ using Plots
 # Boundary condition is: u(0) = u(2pi) -> Periodic!
 
 nx = 101
-dx = 2 * pi / (nx - 1)
-nt = 500 # Number of timesteps
-nu = 0.07 # Viscosity
+ny = 101
+dx = 2 / (nx - 1)
+dy = 2 / (ny - 1)
+nt = 100 # Number of timesteps
+c = 1
 sigma = 0.2 # Sigma is randomly defined later, then we're told to ignore it for now. K. Probably some kind of discretised stepping rate.
-dt = dx * nu # dt is the amount of time each step, i.e. delta t
+dt = sigma * dx # dt is the amount of time each step, i.e. delta t
 
 t = 0 # Initial time
-x = range(0, 2*pi, length = nx)
+x = range(0, 2, length = nx)
+y = range(0, 2, length = ny)
 
-# Set up initial conditions. We want 1 everywhere, except where there are twos (0.5 ≤ x ≤ 1)
-u = ones(1, nx)
-u[round(Int, 0.5/dx):round(Int, 1/dx+1)] .= 2
+# Set up initial conditions. We want 1 everywhere, except where there are twos (0.5 ≤ (x,y) ≤ 1)
+u = ones(ny, nx)
+u[round(Int, 0.5/dy):round(Int, 1/dy+1), round(Int, 0.5/dx):round(Int, 1/dx+1)] .= 2
 
-phi = exp.(-x.*x./(4*nu)) + exp.(-(x .- 2 * pi).^2 ./ (4 * nu))
-dphidx = -(-8*t .+ 2*x) .* exp.(-(-4*t .+ x).^2 ./ (4*nu*(t + 1))) ./ (4*nu*(t + 1)) .- (-8*t .+ 2*x .- 4*pi) .* exp.(-(-4*t .+ x .- 2*pi).^2 ./ (4*nu .* (t + 1))) ./ (4*nu*(t + 1))
-u = -2*nu.*(-(-8*t .+ 2*x).*exp.(-(-4*t .+ x).^2 ./ (4*nu*(t + 1))) ./ (4*nu*(t + 1)) .- (-8*t .+ 2*x .- 4*pi) .* exp.(-(-4*t .+ x .- 2*pi).^2 ./ (4*nu .* (t + 1))) ./ (4*nu .* (t + 1))) ./ (exp.(-(-4*t .+ x .- 2*pi) .^2 ./ (4*nu * (t + 1))) .+ exp.(-(-4*t .+ x).^2 ./ (4*nu*(t + 1)))) .+ 4
-# Copied directly from the tutorial and modified for Julia, because screeeeewwwww typing this out by hand.
+
 
 uini = copy(u)
-plot(uini)
+p1 = contour(x, y, uini,
+            xlim = [0, 2],
+            ylim = [0, 2],
+            fill = true,
+            aspect_ratio = :equal,
+            cbar = false)
 
 # For every element in u, we need to perform the discretization
-anim = @animate for n in 1:nt
-# for n in 1:nt # This n actually isn't doing anything at the moment. I guess we *could* use it to store time information, but atm we just lose that.
+# anim = @animate for n in 1:nt
+for n in 1:nt # This n actually isn't doing anything at the moment. I guess we *could* use it to store time information, but atm we just lose that.
     local un = copy(u)
-    for i in 2:nx-1
-        u[i] = un[i] - un[i] * dt / dx * (un[i] - un[i - 1]) + nu * dt / (dx * dx) * (un[i+1] - 2 * un[i] + un[i-1]) # Discretised diffusion added here. It's linear, but based on viscosity.
-        u[1] = un[1] - un[1] * dt / dx * (un[1] - un[end - 1]) + nu * dt / (dx * dx) * (un[2] - 2 * un[1] + un[end - 1])
-        u[end] = u[1]
+    for j in 2:ny-1
+        for i in 2:nx-1
+            u[i, j] = un[i, j] - c * dt / dx * (un[i, j] - un[i-1, j]) - c * dt / dy * (un[i, j] - un[i, j-1]) # Linear convection. c -> Linear!
+
+            # Apply boundary conditions
+            u[1, :] .= 1
+            u[end, :] .= 1
+            u[:, 1] .= 1
+            u[:, end] .= 1
+        end
     end
-    plot(uini)
-    plot!(u)
+    # plot(uini)
+    # plot!(u)
 end
 
-# plot!(u)
-gif(anim, "sawtooth.gif", fps = 30)
+p2 = contour(x, y, u,
+            aspect_ratio = :equal,
+            xlim = [0, 2],
+            ylim = [0, 2],
+            cbar = false)
+# gif(anim, "sawtooth.gif", fps = 30)
+plot(p1, p2, fill = true, layout = (1, 2))
