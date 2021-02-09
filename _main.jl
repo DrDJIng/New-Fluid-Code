@@ -20,21 +20,9 @@ using Plots
 # Update initial matrices
 # Repeat for more timesteps
 
-# First, let's build up from 1D, and go from there.
+# Onto 2D stuff! Also, I'm not good at updating these comments, so sorry to anyone who reads these in the future (except you Dave, you deserve it for forgetting to update the comments.)
 
-# Onto Burger's equation! Combining both advection AND diffusion! Combining the two yields:
-# u[i] = un[i] - un[i] * dt / dx * (un[i] - un[i - 1]) + nu * dt / (dx * dx) * (un[i+1] - 2 * un[i] + un[i-1])
-
-# Though we want to add some boundary conditions here, because we want to explore some interesting concepts with Burger's equation.
-# Initla conditions are:
-# u = -2nu/phi dphi/dx +4
-# phi = exp(-x^2/4nu) + exp(-(x-2pi)^2/4nu)
-
-# Has an analytic solution of:
-# u = -2nu/phi dphi/dx +4
-# phi = exp(-(x - 4t)^2/(4nu(t+1))) + exp(-(x-4t-2pi)^2/(4nu(t+1)))
-
-# Boundary condition is: u(0) = u(2pi) -> Periodic!
+# This is what I think is typically called the "multi-grid method", but I understand it far more intuitively from this discretization viewpoint.
 
 nx = 101
 ny = 101
@@ -50,8 +38,11 @@ x = range(0, 2, length = nx)
 y = range(0, 2, length = ny)
 
 # Set up initial conditions. We want 1 everywhere, except where there are twos (0.5 ≤ (x,y) ≤ 1)
-u = ones(ny, nx)
+u = ones(ny, nx) # X-velocity
 u[round(Int, 0.5/dy):round(Int, 1/dy+1), round(Int, 0.5/dx):round(Int, 1/dx+1)] .= 2
+
+v = ones(ny, nx) # Y-velocity
+v[round(Int, 0.5/dy):round(Int, 1/dy+1), round(Int, 0.5/dx):round(Int, 1/dx+1)] .= 2
 
 
 
@@ -67,15 +58,21 @@ p1 = contour(x, y, uini,
 # anim = @animate for n in 1:nt
 for n in 1:nt # This n actually isn't doing anything at the moment. I guess we *could* use it to store time information, but atm we just lose that.
     local un = copy(u)
+    local vn = copy(v)
     for j in 2:ny-1
         for i in 2:nx-1
-            u[i, j] = un[i, j] - c * dt / dx * (un[i, j] - un[i-1, j]) - c * dt / dy * (un[i, j] - un[i, j-1]) # Linear convection. c -> Linear!
+            u[i, j] = un[i, j] - un[i, j] * dt / dx * (un[i, j] - un[i-1, j]) - vn[i, j] * dt / dy * (un[i, j] - un[i, j-1]) # 2D, non-linear convection.
+            v[i, j] = vn[i, j] - un[i, j] * dt / dx * (vn[i, j] - vn[i-1, j]) - vn[i, j] * dt / dy * (vn[i, j] - vn[i, j-1]) # Also 2D, non-linear convection.
 
             # Apply boundary conditions
             u[1, :] .= 1
             u[end, :] .= 1
             u[:, 1] .= 1
             u[:, end] .= 1
+            v[1, :] .= 1
+            v[end, :] .= 1
+            v[:, 1] .= 1
+            v[:, end] .= 1
         end
     end
     # plot(uini)
