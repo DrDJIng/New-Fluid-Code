@@ -1,6 +1,5 @@
 using LinearAlgebra
 using Plots
-# plotly()
 
 # Basic equations
 # Velocity field
@@ -22,10 +21,7 @@ using Plots
 
 # Onto 2D stuff! Also, I'm not good at updating these comments, so sorry to anyone who reads these in the future (except you Dave, you deserve it for forgetting to update the comments.)
 
-# Now we're getting into the real nitty-gritty stuff. Laplace equation! I'm pretty sure that here is where we'll finally deal with solving unlinked PDE's.
-# When discretising, keep in mind the physical properties we want to simulate. i.e. Laplace should be central differences, because it contains diffusion phenomena.
-# Also independent of time! That is, it calculates the equilibrium state of a given set of boundary conditions -> probably in the limit of t -> ∞
-# Ah, this is where we add in an iterative solver! Excellent, I have some wonderful stencils from Jesse for this. I won't use them here, but I will use them eventually.
+# Poisson equation is just the Laplace equation, but with a source term.
 
 # nx = 41
 # ny = 41
@@ -110,22 +106,22 @@ using Plots
 # # gif(anim, "sawtooth.gif", fps = 30)
 # plot(p1, p2, fill = true, layout = (1, 2))
 
-function laplace2D!(p, y, nx::Int, ny::Int, dx::Float64, dy::Float64, err::Float64)
+function laplace2D!(p, b, y, nx::Int, ny::Int, dx::Float64, dy::Float64, err::Float64)
         current_err = 1
 
         while current_err > err
                 local pn = copy(p)
                 for j = 2:ny - 1
                         for i = 2:nx - 1
-                                p[i, j] = ((dy * dy * (pn[i+1, j] + pn[i-1, j]) + dx * dx * (pn[i, j+1] + pn[i, j-1]))
+                                p[i, j] = ((dy * dy * (pn[i+1, j] + pn[i-1, j]) + dx * dx * (pn[i, j+1] + pn[i, j-1]) - b[i, j] * dx * dx * dy * dy)
                                         / (2 * (dx * dx + dy * dy))
                                         ) # Laplace is deceptively simple, isn'tit?
                         end
                 end
                 p[:, 1] .= 0 # p = 0 @ x = 0
-                p[:, end] = y # p = y @ x = 2
-                p[1, :] = p[1, :] # dp/dy = 0 @ y = 0
-                p[end, :] = p[end - 1, :] # dp/dy = 0 @ y = 1
+                p[:, nx-1] .= 0 # p = 0 @ x = 2
+                p[1, :] .= 0 # dp/dy = 0 @ y = 0
+                p[ny-1, :] .= 0 # dp/dy = 0 @ y = 1
 
                 current_err = (sum(abs.(p) - abs.(pn))) / sum(abs.(pn))
         end
@@ -139,27 +135,27 @@ dy = 2 / (ny - 1)
 x = range(0, 2, length = nx)
 y = range(0, 1, length = ny)
 p = zeros(ny, nx)
-p[:, 1] .= 0 # p = 0 @ x = 0
-p[:, end] = y # p = y @ x = 2
-p[1, :] = p[1, :] # dp/dy = 0 @ y = 0
-p[end, :] = p[end - 1, :] # dp/dy = 0 @ y = 1
 
-p1 = contour(x, y, p,
-            # aspect_ratio = :equal,
-            xlim = [0, 2],
-            ylim = [0, 1],
-            # clim = (1, 2),
-            #cbar = false
-            )
+b = zeros(size(p))
+b[floor(Int, ny/4), floor(Int, nx/4)] = 100
+b[floor(Int, 3*ny/4), floor(Int, 3*nx/4)] = -100
 
-laplace2D!(p, y, nx, ny, dx, dy, 1e-4)
+# p1 = contour(x, y, p,
+#             # aspect_ratio = :equal,
+#             xlim = [0, 2],
+#             ylim = [0, 1],
+#             # clim = (1, 2),
+#             #cbar = false
+#             )
+
+laplace2D!(p, b, y, nx, ny, dx, dy, 1e-4)
 
 p2 = contour(x, y, p,
             # aspect_ratio = :equal,
             xlim = [0, 2],
             ylim = [0, 1],
-            # clim = (1, 2),
+            # clim = (-0.25, 0.25),
             #cbar = false
             )
 
-plot(p1, p2, fill = true, layout = (1, 2))
+plot(p2, fill = true)
