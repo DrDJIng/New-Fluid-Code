@@ -1,5 +1,7 @@
 using LinearAlgebra
-using Plots
+using AbstractPlotting
+using GLMakie
+AbstractPlotting.inline!(false)
 
 # Basic equations
 # Velocity field
@@ -19,143 +21,124 @@ using Plots
 # Update initial matrices
 # Repeat for more timesteps
 
-# Onto 2D stuff! Also, I'm not good at updating these comments, so sorry to anyone who reads these in the future (except you Dave, you deserve it for forgetting to update the comments.)
+# Finally getting into the nitty-gritty stuff. Proper Navier-Stokes! In a cavity, so just a closed box, but still on my way to actually ~understanding~
+# the finite-difference method.
 
-# Poisson equation is just the Laplace equation, but with a source term.
+# I think I want two functions. A poisson pressure function, and a diffusion / advection function for the velocities
 
-# nx = 41
-# ny = 41
-# dx = 2 / (nx - 1)
-# dy = 2 / (ny - 1)
-# nt = 120 # Number of timesteps
-# nu = 0.01
-# sigma = 0.0009 # Sigma is randomly defined, then we're told to ignore it for now. K. Probably some kind of discretised stepping rate.
-# dt = sigma * dx * dy / nu # dt is the amount of time each step, i.e. delta t
+# Diffuse/advect should take in u/v, v/u, dx, dy, dt, rho, nu
+# Should generalise so that I can call it twice with the u/v's swapped, since they're identical apart from that.
+# Realised I can't do it the initial way I thought, because then the "guesses" wouldn't be the right guess for each run-through
+# Well, it would be right for the first, then wrong for the second, as the first would already be iterated through time, and we need to consider
+# guesses at the same time-step.
 
-# t = 0 # Initial time
-# x = range(0, 2, length = nx)
-# y = range(0, 2, length = ny)
+function moveFluid!(u, v, p, nx::Int, ny::Int, dx::Float64, dy::Float64, dt::Float64, rho::Float64, nu::Float64)
+        local un = copy(u) # Make temporary copy of previous time step
+        local vn = copy(v)
+        for j = 2:ny - 1
+                for i = 2:nx - 1
+                        u[i, j] = (un[i, j] # Discretised Du/Dt = -1/ρ ∇p + ν∇^2u
+                                - un[i, j] * (dt / dx) * (un[i, j] - un[i-1, j])
+                                - vn[i, j] * (dt / dy) * (un[i, j] - un[i, j-1])
+                                - dt / (rho * 2 * dx) * (p[i+1, j] - p[i-1, j])
+                                + nu * (
+                                        dt / (dx^2) * (un[i+1, j] - 2 * un[i, j] + un[i-1, j])
+                                        + dt / (dy^2) * (un[i, j+1] - 2 * un[i, j] + un[i, j-1])
+                                        )
+                                )
 
-# Set up initial conditions. We want 1 everywhere, except where there are twos (0.5 ≤ (x,y) ≤ 1)
-# u = ones(ny, nx) # X-velocity
-# u[round(Int, 0.5/dy):round(Int, 1/dy+1), round(Int, 0.5/dx):round(Int, 1/dx+1)] .= 2
-#
-# v = ones(ny, nx) # Y-velocity
-# v[round(Int, 0.5/dy):round(Int, 1/dy+1), round(Int, 0.5/dx):round(Int, 1/dx+1)] .= 2
-#
-# uini = copy(u)
-# p1 = contour(x, y, uini,
-#             xlim = [0, 2],
-#             ylim = [0, 2],
-#             fill = true,
-#             clim = (1, 2),
-#             aspect_ratio = :equal,
-#             #cbar = false
-#             )
+                        v[i, j] = (vn[i, j] # Discretised Dv/Dt = -1/ρ ∇p + ν∇^2v
+                                - un[i, j] * (dt / dx) * (vn[i, j] - vn[i-1, j])
+                                - vn[i, j] * (dt / dy) * (vn[i, j] - vn[i, j-1])
+                                - dt / (rho * 2 * dy) * (p[i, j+1] - p[i, j-1])
+                                + nu * (
+                                        dt / (dx^2) * (vn[i+1, j] - 2 * vn[i, j] + vn[i-1, j])
+                                        + dt / (dy^2) * (vn[i, j+1] - 2 * vn[i, j] + vn[i, j-1])
+                                        )
+                                )
 
+                                # Probably actually can put the un / vn in as an input. Yeah, that probably would have been the smarter thing to do
+                                # Especially when this gets to 3D.
+                end
+        end
 
-# ufin = diffuse!(nt, u)
+        # Apply boundary conditions.
+        u[1, :] .= 0
+        u[:, 1] .= 0
+        u[end, :] .= 0
+        u[:, end] .= 1 # Set horizontal movement on "the lid"
+        v[1, :] .= 0
+        v[end, :] .= 0
+        v[:, 1] .= 0
+        v[:, end] .= 0
 
-# This is back in as explicit code, because fuck functions, I guess?
+        return nothing # Libbum tells me that this is faster than actually not returning anything.
+end
 
-# for n in 1:nt # This n actually isn't doing anything at the moment. I guess we *could* use it to store time information, but atm we just lose that.
-#     local un = copy(u)
-#     local vn = copy(v)
-#     for j in 2:ny-1
-#         for i in 2:nx-1
-#             # u[i, j] = un[i, j] + nu * dt / (dx * dx) * (un[i+1, j] - 2 * un[i, j] + un[i-1, j]) + nu * dt / (dy * dy) * (un[i, j+1] - 2 * un[i, j] + un[i, j-1]) # 2D diffusion
-#             # u[i, j] = un[i, j] - un[i, j] * dt / dx * (un[i, j] - un[i-1, j]) - vn[i, j] * dt / dy * (un[i, j] - un[i, j-1]) # 2D, non-linear convection.
-#             # v[i, j] = vn[i, j] - un[i, j] * dt / dx * (vn[i, j] - vn[i-1, j]) - vn[i, j] * dt / dy * (vn[i, j] - vn[i, j-1]) # Also 2D, non-linear convection.
-#             u[i, j] = (un[i, j]
-#                     - dt / dx * un[i, j] * (un[i, j] - un[i-1, j])
-#                     - dt / dy * vn[i, j] * (un[i, j] - un[i, j-1])
-#                     + nu * dt / (dx * dx) * (un[i+1, j] - 2 * un[i, j] + un[i-1, j])
-#                     + nu * dt / (dy * dy) * (un[i, j+1] - 2 * un[i, j] + un[i, j-1])
-#                     )
-#
-#             v[i, j] = (vn[i, j]
-#                     - dt / dx * un[i, j] * (vn[i, j] - vn[i-1, j])
-#                     - dt / dy * vn[i, j] * (vn[i, j] - vn[i, j-1])
-#                     + nu * dt / (dx * dx) * (vn[i+1, j] - 2 * vn[i, j] + vn[i-1, j])
-#                     + nu * dt / (dy * dy) * (vn[i, j+1] - 2 * vn[i, j] + vn[i, j-1])
-#                     )
-#
-#             # Apply boundary conditions
-#             u[1, :] .= 1
-#             u[end, :] .= 1
-#             u[:, 1] .= 1
-#             u[:, end] .= 1
-#             v[1, :] .= 1
-#             v[end, :] .= 1
-#             v[:, 1] .= 1
-#             v[:, end] .= 1
-#         end
-#     end
-#     # plot(uini)
-#     # plot!(u)
-# end
+# Poisson should take in p, u, v, dx, dy, dt. The version in the tutorial has a set number of iterations (nit), so maybe the err doesn't converge nicely?
+# This is also where I will eventually put Jesse's nice stencils. Also just realised that iterative to equilibrium removes the divergence! Of course it does!
+# I can be really thick sometimes.
 
-
-# p2 = contour(x, y, u,
-#             aspect_ratio = :equal,
-#             xlim = [0, 2],
-#             ylim = [0, 2],
-#             clim = (1, 2),
-#             #cbar = false
-#             )
-# # gif(anim, "sawtooth.gif", fps = 30)
-# plot(p1, p2, fill = true, layout = (1, 2))
-
-function laplace2D!(p, b, y, nx::Int, ny::Int, dx::Float64, dy::Float64, err::Float64)
-        current_err = 1
-
-        while current_err > err
+function removeDivergenceFromPressure!(p, u, v, dx::Float64, dy::Float64, dt::Float64, nx::Int, ny::Int, nit::Int, rho::Float64)
+        for n = 1:nit
                 local pn = copy(p)
-                for j = 2:ny - 1
-                        for i = 2:nx - 1
-                                p[i, j] = ((dy * dy * (pn[i+1, j] + pn[i-1, j]) + dx * dx * (pn[i, j+1] + pn[i, j-1]) - b[i, j] * dx * dx * dy * dy)
-                                        / (2 * (dx * dx + dy * dy))
-                                        ) # Laplace is deceptively simple, isn'tit?
+                for j = 2:ny-1
+                        for i = 2:nx-1
+                                p[i, j] = (
+                                        (((pn[i+1, j] + pn[i-1, j]) * dy^2 + (pn[i, j+1] + pn[i, j-1]) * dx^2) / (2 * (dx^2 + dy^2)))
+                                        - dx^2 * dy^2 / (2 * (dx^2 + dy^2))
+                                        * rho * (1/dt * (
+                                                (u[i+1, j] - u[i-1, j]) / (2 * dx) + (v[i, j+1] - v[i, j-1]) / (2 * dy)
+                                                )
+                                                - (((u[i+1, j] - u[i-1, j]) / (2 * dx)) ^ 2)
+                                                - 2 * (u[i, j+1] - u[i, j-1]) / (2 * dy) * (v[i+1, j] - v[i-1, j]) / (2 * dx)
+                                                - (((v[i, j+1] - v[i, j-1]) / (2 * dy)) ^ 2)
+                                                )
+                                        )
                         end
                 end
-                p[:, 1] .= 0 # p = 0 @ x = 0
-                p[:, nx-1] .= 0 # p = 0 @ x = 2
-                p[1, :] .= 0 # dp/dy = 0 @ y = 0
-                p[ny-1, :] .= 0 # dp/dy = 0 @ y = 1
 
-                current_err = (sum(abs.(p) - abs.(pn))) / sum(abs.(pn))
+                p[end, :] = p[end - 1, :] # dp/dx = 0 at x = 2
+                p[:, 1] = p[:, 2] # dp/dy = 0 at y = 0
+                p[1, :] = p[2, :] # dp/dx = 0 at x = 0
+                p[:, end] .= 0 # p = 0 at y = 2
         end
         return nothing
 end
 
-nx = 31
-ny = 31
-dx = 2 / (nx - 1)
+# Note: I should make a mutable structure to contain all the config options. Would make my life a lot easier than having to input them all into every function.
+function cavityFlow(nt::Int, u, v, p, rho::Float64, nu::Float64, nx::Int, ny::Int, dx::Float64, dy::Float64, nit::Int)
+        for t = 1:nt
+                removeDivergenceFromPressure!(p, u, v, dx, dy, dt, nx, ny, nit, rho)
+                moveFluid!(u, v, p, nx, ny, dx, dy, dt, rho, nu)
+        end
+        return nothing
+end
+
+
+# Setting up some constant
+nx = 41 # Number of steps in x
+ny = 41 # Number of steps in y
+nt = 300 # Number of steps in t
+nit = 50 # Number of poisson iterations.
+
+dx = 2 / (nx - 1) # Spatial step size
 dy = 2 / (ny - 1)
+
 x = range(0, 2, length = nx)
-y = range(0, 1, length = ny)
-p = zeros(ny, nx)
+y = range(0, 2, length = ny)
 
-b = zeros(size(p))
-b[floor(Int, ny/4), floor(Int, nx/4)] = 100
-b[floor(Int, 3*ny/4), floor(Int, 3*nx/4)] = -100
+rho = 1.0 # Density
+nu = 0.1 # Viscosity
+dt = 0.001 # Time step size
 
-# p1 = contour(x, y, p,
-#             # aspect_ratio = :equal,
-#             xlim = [0, 2],
-#             ylim = [0, 1],
-#             # clim = (1, 2),
-#             #cbar = false
-#             )
+u = zeros(nx, ny)
+v = zeros(nx, ny)
+p = zeros(nx, ny)
 
-laplace2D!(p, b, y, nx, ny, dx, dy, 1e-4)
+cavityFlow(nt, u, v, p, rho, nu, nx, ny, dx, dy, nit)
 
-p2 = contour(x, y, p,
-            # aspect_ratio = :equal,
-            xlim = [0, 2],
-            ylim = [0, 1],
-            # clim = (-0.25, 0.25),
-            #cbar = false
-            )
-
-plot(p2, fill = true)
+heatmap(x, y, p)
+# contour!(x, y, p)
+#
+arrows!(x, y, u, v, arrowsize = 0.02, lengthscale = 0.3)
