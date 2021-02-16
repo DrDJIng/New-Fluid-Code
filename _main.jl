@@ -1,7 +1,7 @@
 using LinearAlgebra
 using AbstractPlotting
 using GLMakie
-AbstractPlotting.inline!(false)
+# AbstractPlotting.inline!(false)
 
 # Basic equations
 # Velocity field
@@ -11,49 +11,64 @@ AbstractPlotting.inline!(false)
 # Composition
 # DS/Dt = S{dotted}
 
-# Probably also need thermodynamic equations as well???  Let's just stick to velocity/density for the moment.
+# Onto NS with a "source" term. i.e. a force field.
 
-# So, the change in velocity is given by the rate of change of the p, and the jerk of the velocity field.
+function applyPeriodicVelXBoundary!(a, an, bn, p, F, i, nx::Int, ny::Int)
+        for j = 2:ny-1
+                a[j, i] = (an[j, i] # Discretised Du/Dt = -1/ρ ∇p + ν∇^2u
+                        - an[j, i] * (dt / dx) * (an[j, i] - an[j, mod1(i-1, nx)])
+                        - bn[j, i] * (dt / dy) * (an[j, i] - an[j-1, j])
+                        - dt / (rho * 2 * dx) * (p[j, mod1(i+1, nx)] - p[j, mod1(i-1, nx)])
+                        + nu * (
+                                dt / (dx^2) * (an[j, mod1(i+1, nx)] - 2 * an[j, i] + an[j, mod1(i-1, nx)])
+                                + dt / (dy^2) * (an[j+1, i] - 2 * an[j, i] + an[j-1, i])
+                                )
+                        + dt * F # Force only in horizontal direction, since we're looking at a horizontal channel.
+                        )
+        end
+        return nothing
+end
 
-# Basic algorithm should go something like:
-# Set up initial matrices
-# Iteratively solve integrals across matrices
-# Update initial matrices
-# Repeat for more timesteps
+function applyPeriodicPXBoundary!(p, pn, u, v, i, nx::Int, ny::Int)
+        for j = 2:ny-1
+                p[j, i] = (
+                        (((pn[j, mod1(i+1, nx)] + pn[j, mod1(i-1, nx)]) * dy^2 + (pn[j+1, i] + pn[j-1, i]) * dx^2) / (2 * (dx^2 + dy^2)))
+                        - dx^2 * dy^2 / (2 * (dx^2 + dy^2))
+                        * rho * (1/dt * (
+                                (u[j, mod1(i+1, nx)] - u[j, mod1(i-1, nx)]) / (2 * dx) + (v[j+1, i] - v[j-1, i]) / (2 * dy)
+                                )
+                                - (((u[j, mod1(i+1, nx)] - u[j, mod1(i-1, nx)]) / (2 * dx)) ^ 2)
+                                - 2 * (u[j+1, i] - u[j-1, i]) / (2 * dy) * (v[j, mod1(i+1, nx)] - v[j, mod1(i-1, nx)]) / (2 * dx)
+                                - (((v[j+1, i] - v[j-1, i]) / (2 * dy)) ^ 2)
+                                )
+                        )
+        end
+        return nothing # Libbum tells me that this is faster than actually not returning anything.
+end
 
-# Finally getting into the nitty-gritty stuff. Proper Navier-Stokes! In a cavity, so just a closed box, but still on my way to actually ~understanding~
-# the finite-difference method.
-
-# I think I want two functions. A poisson pressure function, and a diffusion / advection function for the velocities
-
-# Diffuse/advect should take in u/v, v/u, dx, dy, dt, rho, nu
-# Should generalise so that I can call it twice with the u/v's swapped, since they're identical apart from that.
-# Realised I can't do it the initial way I thought, because then the "guesses" wouldn't be the right guess for each run-through
-# Well, it would be right for the first, then wrong for the second, as the first would already be iterated through time, and we need to consider
-# guesses at the same time-step.
-
-function moveFluid!(u, v, p, nx::Int, ny::Int, dx::Float64, dy::Float64, dt::Float64, rho::Float64, nu::Float64)
+function moveFluid!(u, v, p, F, nx::Int, ny::Int, dx::Float64, dy::Float64, dt::Float64, rho::Float64, nu::Float64)
         local un = copy(u) # Make temporary copy of previous time step
         local vn = copy(v)
         for j = 2:ny - 1
                 for i = 2:nx - 1
-                        u[i, j] = (un[i, j] # Discretised Du/Dt = -1/ρ ∇p + ν∇^2u
-                                - un[i, j] * (dt / dx) * (un[i, j] - un[i-1, j])
-                                - vn[i, j] * (dt / dy) * (un[i, j] - un[i, j-1])
-                                - dt / (rho * 2 * dx) * (p[i+1, j] - p[i-1, j])
+                        u[j, i] = (un[j, i] # Discretised Du/Dt = -1/ρ ∇p + ν∇^2u
+                                - un[j, i] * (dt / dx) * (un[j, i] - un[j, i-1])
+                                - vn[j, i] * (dt / dy) * (un[j, i] - un[j-1, j])
+                                - dt / (rho * 2 * dx) * (p[j, i+1] - p[j, i-1])
                                 + nu * (
-                                        dt / (dx^2) * (un[i+1, j] - 2 * un[i, j] + un[i-1, j])
-                                        + dt / (dy^2) * (un[i, j+1] - 2 * un[i, j] + un[i, j-1])
+                                        dt / (dx^2) * (un[j, i+1] - 2 * un[j, i] + un[j, i-1])
+                                        + dt / (dy^2) * (un[j+1, i] - 2 * un[j, i] + un[j-1, i])
                                         )
+                                + dt * F # Force only in horizontal direction, since we're looking at a horizontal channel.
                                 )
 
-                        v[i, j] = (vn[i, j] # Discretised Dv/Dt = -1/ρ ∇p + ν∇^2v
-                                - un[i, j] * (dt / dx) * (vn[i, j] - vn[i-1, j])
-                                - vn[i, j] * (dt / dy) * (vn[i, j] - vn[i, j-1])
-                                - dt / (rho * 2 * dy) * (p[i, j+1] - p[i, j-1])
+                        v[j, i] = (vn[j, i] # Discretised Dv/Dt = -1/ρ ∇p + ν∇^2v
+                                - un[j, i] * (dt / dx) * (vn[j, i] - vn[j, i-1])
+                                - vn[j, i] * (dt / dy) * (vn[j, i] - vn[j-1, j])
+                                - dt / (rho * 2 * dy) * (p[j+1, i] - p[j-1, i])
                                 + nu * (
-                                        dt / (dx^2) * (vn[i+1, j] - 2 * vn[i, j] + vn[i-1, j])
-                                        + dt / (dy^2) * (vn[i, j+1] - 2 * vn[i, j] + vn[i, j-1])
+                                        dt / (dx^2) * (vn[j, i+1] - 2 * vn[j, i] + vn[j, i-1])
+                                        + dt / (dy^2) * (vn[j+1, i] - 2 * vn[j, i] + vn[j-1, i])
                                         )
                                 )
 
@@ -62,17 +77,22 @@ function moveFluid!(u, v, p, nx::Int, ny::Int, dx::Float64, dy::Float64, dt::Flo
                 end
         end
 
+        # Left and right side *are* periodic, and need to be treated carefully. A naiive setting of the values at one side to the other might work, but an explicit calculation is better.
+        j = 1
+        applyPeriodicVelXBoundary!(u, un, vn, p, F, j, nx, ny)
+        applyPeriodicVelXBoundary!(v, vn, un, p, 0, j, nx, ny)
+        j = ny
+        applyPeriodicVelXBoundary!(u, un, vn, p, F, j, nx, ny)
+        applyPeriodicVelXBoundary!(v, vn, un, p, 0, j, nx, ny)
+
         # Apply boundary conditions.
+        # Bottom and top are not periodic, and are 0.
         u[1, :] .= 0
-        u[:, 1] .= 0
         u[end, :] .= 0
-        u[:, end] .= 1 # Set horizontal movement on "the lid"
         v[1, :] .= 0
         v[end, :] .= 0
-        v[:, 1] .= 0
-        v[:, end] .= 0
 
-        return nothing # Libbum tells me that this is faster than actually not returning anything.
+        return un
 end
 
 # Poisson should take in p, u, v, dx, dy, dt. The version in the tutorial has a set number of iterations (nit), so maybe the err doesn't converge nicely?
@@ -84,42 +104,49 @@ function removeDivergenceFromPressure!(p, u, v, dx::Float64, dy::Float64, dt::Fl
                 local pn = copy(p)
                 for j = 2:ny-1
                         for i = 2:nx-1
-                                p[i, j] = (
-                                        (((pn[i+1, j] + pn[i-1, j]) * dy^2 + (pn[i, j+1] + pn[i, j-1]) * dx^2) / (2 * (dx^2 + dy^2)))
+                                p[j, i] = (
+                                        (((pn[j, i+1] + pn[j, i-1]) * dy^2 + (pn[j+1, i] + pn[j-1, i]) * dx^2) / (2 * (dx^2 + dy^2)))
                                         - dx^2 * dy^2 / (2 * (dx^2 + dy^2))
                                         * rho * (1/dt * (
-                                                (u[i+1, j] - u[i-1, j]) / (2 * dx) + (v[i, j+1] - v[i, j-1]) / (2 * dy)
+                                                (u[j, i+1] - u[j, i-1]) / (2 * dx) + (v[j+1, i] - v[j-1, i]) / (2 * dy)
                                                 )
-                                                - (((u[i+1, j] - u[i-1, j]) / (2 * dx)) ^ 2)
-                                                - 2 * (u[i, j+1] - u[i, j-1]) / (2 * dy) * (v[i+1, j] - v[i-1, j]) / (2 * dx)
-                                                - (((v[i, j+1] - v[i, j-1]) / (2 * dy)) ^ 2)
+                                                - (((u[j, i+1] - u[j, i-1]) / (2 * dx)) ^ 2)
+                                                - 2 * (u[j+1, i] - u[j-1, i]) / (2 * dy) * (v[j, i+1] - v[j, i-1]) / (2 * dx)
+                                                - (((v[j+1, i] - v[j-1, i]) / (2 * dy)) ^ 2)
                                                 )
                                         )
                         end
                 end
+                # Periodic boundaries at left and right
+                j = 1
+                applyPeriodicPXBoundary!(p, pn, u, v, j, nx, ny)
+                j = ny
+                applyPeriodicPXBoundary!(p, pn, u, v, j, nx, ny)
 
-                p[end, :] = p[end - 1, :] # dp/dx = 0 at x = 2
-                p[:, 1] = p[:, 2] # dp/dy = 0 at y = 0
-                p[1, :] = p[2, :] # dp/dx = 0 at x = 0
-                p[:, end] .= 0 # p = 0 at y = 2
+                # Flux is 0 at top and bottom
+                p[1, :] = p[2, :] # dp/dy = 0 at y = 0
+                p[end, :] = p[end-1, :] # p = 0 at y = 2
+
         end
         return nothing
 end
 
 # Note: I should make a mutable structure to contain all the config options. Would make my life a lot easier than having to input them all into every function.
-function cavityFlow(nt::Int, u, v, p, rho::Float64, nu::Float64, nx::Int, ny::Int, dx::Float64, dy::Float64, nit::Int)
-        for t = 1:nt
+function cavityFlow(err::Float64, u, v, p, F, rho::Float64, nu::Float64, nx::Int, ny::Int, dx::Float64, dy::Float64, nit::Int)
+        currentErr = 1
+        while currentErr > err
                 removeDivergenceFromPressure!(p, u, v, dx, dy, dt, nx, ny, nit, rho)
-                moveFluid!(u, v, p, nx, ny, dx, dy, dt, rho, nu)
+                un = moveFluid!(u, v, p, F, nx, ny, dx, dy, dt, rho, nu)
+                currentErr = (sum(u) - sum(un)) / sum(u)
         end
-        return nothing
+        return numsteps
 end
 
 
 # Setting up some constant
 nx = 41 # Number of steps in x
 ny = 41 # Number of steps in y
-nt = 300 # Number of steps in t
+err = 0.001 # Target error
 nit = 50 # Number of poisson iterations.
 
 dx = 2 / (nx - 1) # Spatial step size
@@ -131,14 +158,12 @@ y = range(0, 2, length = ny)
 rho = 1.0 # Density
 nu = 0.1 # Viscosity
 dt = 0.001 # Time step size
+F = 100
 
-u = zeros(nx, ny)
-v = zeros(nx, ny)
-p = zeros(nx, ny)
+u = zeros(ny, nx)
+v = zeros(ny, nx)
+p = zeros(ny, nx)
 
-cavityFlow(nt, u, v, p, rho, nu, nx, ny, dx, dy, nit)
+cavityFlow(err, u, v, p, F, rho, nu, nx, ny, dx, dy, nit)
 
-heatmap(x, y, p)
-# contour!(x, y, p)
-#
-arrows!(x, y, u, v, arrowsize = 0.02, lengthscale = 0.3)
+contour(y, x, u') # Transposed so it matches how we want it to plot - horizontally.
